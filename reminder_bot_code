@@ -1,0 +1,132 @@
+import telebot
+from telebot.types import *
+import datetime
+from HELPER_reminder_bot import *
+from DB_reminder_bot import notes, users
+import time
+import asyncio
+
+token = "8085164089:AAExnhxfcp80IR0sCI9VeRTNXh4z6bIWkfY"
+bot = telebot.TeleBot(token)
+
+month = ""
+day = 0
+time = 0
+note_txt = ""
+
+
+@bot.message_handler(commands=["start"])
+def start_function(message: Message):
+    keybord = InlineKeyboardMarkup(row_width=3)
+    for i in range(0, len(months), 3):
+        button_month = InlineKeyboardButton(months[i], callback_data=months[i])
+        button_month1 = InlineKeyboardButton(months[i + 1], callback_data=months[i + 1])
+        button_month2 = InlineKeyboardButton(months[i + 2], callback_data=months[i + 2])
+        keybord.add(button_month, button_month1, button_month2)
+    bot.send_message(message.chat.id, "Привет, выбери нужный месяц:", reply_markup=keybord)
+
+
+@bot.callback_query_handler(func=lambda callback: callback.data in months)
+def check_input(callback: CallbackQuery):
+    global month
+    bot.send_message(callback.message.chat.id, f'Вы выбрали месяц: {callback.data}')
+    month = months.index(callback.data) + 1
+
+    keybord = InlineKeyboardMarkup(row_width=3)
+    for i in range(0, len(days) - 1, 3):
+        button_days = InlineKeyboardButton(days[i], callback_data=days[i])
+        button_days1 = InlineKeyboardButton(days[i + 1], callback_data=days[i + 1])
+        button_days2 = InlineKeyboardButton(days[i + 2], callback_data=days[i + 2])
+        keybord.add(button_days, button_days1, button_days2)
+    button_days3 = InlineKeyboardButton(days[-1], callback_data=days[-1])
+    keybord.add(button_days3)
+    bot.send_message(callback.message.chat.id, "Выбери нужный день:", reply_markup=keybord)
+
+
+@bot.callback_query_handler(func=lambda callback: callback.data in days)
+def check_input2(callback: CallbackQuery):
+    global day
+    bot.send_message(callback.message.chat.id, f'Вы выбрали день: {callback.data}')
+    day = callback.data
+    bot.send_message(callback.message.chat.id, 'Введите час, минуты (в формате 9:41) когда напоминание должно прийти')
+    bot.register_next_step_handler(callback.message, time_input)
+
+def note_text(message: Message):
+    global note_txt
+    note_txt = message.text
+    bot.send_message(message.chat.id, f'Заметка должна прийти {datetime.datetime.fromtimestamp(time)}, текст: {note_txt}')
+    notes.write([message.chat.id, note_txt, time])
+
+
+
+def time_input(message: Message):
+    global time
+    try:
+        dt_object = datetime.datetime.strptime(f'2025-{month}-{day} {message.text}', '%Y-%m-%d %H:%M')
+    except ValueError:
+        bot.send_message(message.chat.id,f'Вы введи время неправильно, введите час, минуты (в формате 9:41) когда напоминание должно прийти')
+        bot.register_next_step_handler(message, time_input)
+        return
+    if dt_object:
+        time = int(dt_object.timestamp())
+        bot.send_message(message.chat.id, 'Введите текст заметки')
+        bot.register_next_step_handler(message, note_text)
+    else:
+        bot.send_message(message.chat.id, f'Введите правильное значение (в формате 9:41)')
+        bot.register_next_step_handler(message, time_input)
+
+
+@bot.message_handler(commands=["mynotes"])
+def show_notes(message: Message):
+    user_notes = notes.read("id_user", message.chat.id)
+    if type(user_notes[0]) == int:
+        txt_note = str(user_notes[1]) + " " + data_convert(user_notes[2])
+        bot.send_message(message.chat.id, txt_note)
+    else:
+        for i in range(0, len(user_notes)):
+            txt_note = str(user_notes[i][1]) + " " + data_convert(user_notes[i][2])
+            bot.send_message(message.chat.id, txt_note)
+
+
+@bot.message_handler(commands=["deletenote"])
+def delete_note(message: Message):
+    user_notes = notes.read("id_user", message.chat.id)
+    keybord = InlineKeyboardMarkup(row_width=3)
+    for i in range(0, len(user_notes)):
+        btn_txt = str(user_notes[i][1]) + " " + data_convert(user_notes[i][2])
+        button_note = InlineKeyboardButton(btn_txt, callback_data=user_notes[i][2])
+        keybord.add(button_note)
+    bot.send_message(message.chat.id, f"Какую заметку вы хотите удалить:", reply_markup=keybord)
+
+@bot.callback_query_handler(func=lambda callback: True)
+def check_delete_note(callback: CallbackQuery):
+    # list1 = callback.data.split(" ")
+    notes.delete_row("date", callback.data)
+    bot.send_message(callback.message.chat.id, f"Заметка {callback.data} была удалена")
+
+
+def send_note(message: Message):
+    user_notes1 = notes.read_all("id_user", message.chat.id)
+    for elem in user_notes1:
+        if time == check_data():
+            bot.send_message(message.chat.id, f"Заметка была удалена")
+
+def data_convert(time):
+    new_time = datetime.datetime.fromtimestamp(time).strftime('%Y-%m-%d %H:%M')
+    return new_time
+
+
+
+def check_data():
+    date_day = datetime.datetime.now().day
+    date_month = datetime.datetime.now().month
+    date_year = datetime.datetime.now().year
+    return date_day, date_month, date_year
+
+
+
+
+
+
+
+bot.infinity_polling()
